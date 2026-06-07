@@ -787,18 +787,46 @@ function addLog(msg, type = '') {
 }
 
 /* ── UDP LISTENER (WebSocket bridge not available in browser, use polling) ── */
+let ryuConnected = false;
+
 function tryConnectRyu() {
   fetch('http://127.0.0.1:8080/qos/stats')
     .then(r => r.json())
     .then(d => {
-      el('connDot').className    = 'logo-dot';
-      el('connLabel').textContent = 'Ryu bağlı (gerçek veri)';
-      el('simNotice').style.display = 'none';
-      updateUI(d);
+      // Gerçek veri var mı? timestamp 0 ise henüz ölçüm yok
+      if (!d.timestamp || d.timestamp === 0) return;
+
+      if (!ryuConnected) {
+        ryuConnected = true;
+        clearInterval(simInterval);  // simülasyonu durdur
+        el('connDot').className     = 'logo-dot';
+        el('connLabel').textContent = 'Ryu bağlı (gerçek veri)';
+        el('simNotice').style.display = 'none';
+        addLog('Gerçek Mininet verisine geçildi', 'ok');
+      }
+
+      // stats formatını updateUI formatına dönüştür
+      const ui = {
+        scenario    : d.scenario || currentScenario,
+        voip        : { throughput_mbps: d.voip_tput  || 0, loss_pct: d.voip_loss  || 0, jitter_ms: d.voip_jitter  || 0, retransmits: 0 },
+        video       : { throughput_mbps: d.video_tput || 0, loss_pct: d.video_loss || 0, jitter_ms: d.video_jitter || 0, retransmits: 0 },
+        bulk        : { throughput_mbps: d.bulk_tput  || 0, loss_pct: 0,               jitter_ms: 0,                retransmits: d.bulk_retx || 0 },
+        rtt_ms      : d.rtt_ms        || 0,
+        bulk_limit  : d.bulk_limit    || 0,
+        constrained : d.constrained   || false,
+        action      : d.action        || 'none',
+        voip_healthy: d.voip_healthy  !== undefined ? d.voip_healthy : true,
+      };
+      updateUI(ui);
     })
     .catch(() => {
-      el('connDot').className    = 'logo-dot';
-      el('connLabel').textContent = 'Demo modu (simülasyon)';
+      if (ryuConnected) {
+        ryuConnected = false;
+        el('connLabel').textContent = 'Ryu bağlantısı kesildi, simülasyon';
+        simInterval = setInterval(simTick, 1500);
+      } else {
+        el('connLabel').textContent = 'Demo modu (simülasyon)';
+      }
     });
 }
 
