@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SDN Adaptif QoS – Canlı Dashboard</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.0.0/tabler-icons.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --bg-card: #181c24;
+    --bg-card2: #1e2330;
+    --border: rgba(255,255,255,0.07);
+    --text: #e8eaf0;
+    --muted: #7c8195;
+    --accent-blue: #4a9eff;
+    --accent-green: #34d399;
+    --accent-amber: #f59e0b;
+    --accent-red: #f87171;
+    --accent-purple: #a78bfa;
+    --voip-color: #34d399;
+    --video-color: #4a9eff;
+    --bulk-color: #f59e0b;
+    --radius: 10px;
+    --font: 'IBM Plex Mono', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font), monospace;
+    font-size: 13px;
+    min-height: 100vh;
+    padding: 0;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+  .topbar {
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+  .topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .logo-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--accent-green);
+    animation: pulse 2s infinite;
+  }
+  .logo-dot.offline { background: var(--accent-red); animation: none; }
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+  .topbar-title { font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
+  .topbar-sub { font-size: 11px; color: var(--muted); }
+  .connection-status {
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 260px 1fr;
+    min-height: calc(100vh - 53px);
+  }
+
+  /* SIDEBAR */
+  .sidebar {
+    background: var(--bg-card);
+    border-right: 1px solid var(--border);
+    padding: 20px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+  }
+  .sidebar-section-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .scenario-btn {
+    width: 100%;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    text-align: left;
+    transition: all 0.15s;
+    margin-bottom: 6px;
+  }
+  .scenario-btn:hover { background: var(--bg-card2); border-color: rgba(255,255,255,0.15); }
+  .scenario-btn.active {
+    border-color: var(--accent-blue);
+    background: rgba(74,158,255,0.08);
+  }
+  .scenario-btn.active.green  { border-color: var(--accent-green); background: rgba(52,211,153,0.08); }
+  .scenario-btn.active.amber  { border-color: var(--accent-amber); background: rgba(245,158,11,0.08); }
+  .scenario-btn.active.purple { border-color: var(--accent-purple); background: rgba(167,139,250,0.08); }
+  .scenario-num {
+    width: 20px; height: 20px;
+    border-radius: 4px;
+    background: var(--bg-card2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 600;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+  .scenario-btn.active .scenario-num { background: var(--accent-blue); color: #000; }
+  .scenario-btn.active.green  .scenario-num { background: var(--accent-green); color: #000; }
+  .scenario-btn.active.amber  .scenario-num { background: var(--accent-amber); color: #000; }
+  .scenario-btn.active.purple .scenario-num { background: var(--accent-purple); color: #000; }
+  .scenario-label { font-weight: 500; line-height: 1.3; }
+  .scenario-desc { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+
+  .control-block {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .control-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .control-label { font-size: 11px; color: var(--muted); }
+  .control-value { font-size: 12px; font-weight: 600; color: var(--text); min-width: 48px; text-align: right; }
+  input[type=range] {
+    width: 100%;
+    accent-color: var(--accent-amber);
+    cursor: pointer;
+  }
+  .apply-btn {
+    width: 100%;
+    background: rgba(245,158,11,0.12);
+    border: 1px solid rgba(245,158,11,0.3);
+    border-radius: 6px;
+    padding: 8px;
+    color: var(--accent-amber);
+    font-family: var(--font);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .apply-btn:hover { background: rgba(245,158,11,0.22); }
+
+  .event-log {
+    flex: 1;
+    overflow-y: auto;
+    max-height: 200px;
+  }
+  .log-entry {
+    font-size: 10px;
+    color: var(--muted);
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+    line-height: 1.5;
+  }
+  .log-entry .ts { color: rgba(255,255,255,0.2); margin-right: 6px; }
+  .log-entry.info { color: var(--accent-blue); }
+  .log-entry.warn { color: var(--accent-amber); }
+  .log-entry.ok   { color: var(--accent-green); }
+
+  /* MAIN */
+  .main { padding: 20px; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  .metric-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .metric-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .metric-card.voip::before  { background: var(--voip-color); }
+  .metric-card.video::before { background: var(--video-color); }
+  .metric-card.bulk::before  { background: var(--bulk-color); }
+  .metric-card.rtt::before   { background: var(--accent-purple); }
+  .metric-label { font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+  .metric-value { font-size: 26px; font-weight: 600; line-height: 1; margin-bottom: 4px; }
+  .metric-card.voip  .metric-value { color: var(--voip-color); }
+  .metric-card.video .metric-value { color: var(--video-color); }
+  .metric-card.bulk  .metric-value { color: var(--bulk-color); }
+  .metric-card.rtt   .metric-value { color: var(--accent-purple); }
+  .metric-unit { font-size: 11px; color: var(--muted); }
+  .metric-sub {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 6px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .badge {
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .badge.ok   { background: rgba(52,211,153,0.12); color: var(--accent-green); }
+  .badge.warn { background: rgba(245,158,11,0.12); color: var(--accent-amber); }
+  .badge.bad  { background: rgba(248,113,113,0.12); color: var(--accent-red); }
+
+  .charts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  .chart-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+  .chart-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .chart-title { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; }
+  .chart-legend {
+    display: flex;
+    gap: 12px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--muted); }
+  .legend-dot { width: 8px; height: 2px; border-radius: 1px; }
+  .chart-wrap { position: relative; height: 180px; }
+
+  .decision-panel {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+  .decision-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .decision-title { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; color: var(--muted); text-transform: uppercase; }
+  .decision-badge {
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+  }
+  .decision-badge.running { background: rgba(52,211,153,0.12); color: var(--accent-green); }
+  .decision-badge.idle    { background: rgba(124,129,149,0.12); color: var(--muted); }
+  .decision-badge.constraining { background: rgba(248,113,113,0.12); color: var(--accent-red); }
+
+  .decisions-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  .decision-item {
+    background: var(--bg-card2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .decision-item-label { font-size: 10px; color: var(--muted); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.08em; }
+  .decision-item-val { font-size: 16px; font-weight: 600; }
+
+  .scenario-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 6px;
+    background: rgba(74,158,255,0.1);
+    color: var(--accent-blue);
+    border: 1px solid rgba(74,158,255,0.2);
+  }
+  .scenario-tag.baseline { background: rgba(124,129,149,0.1); color: var(--muted); border-color: rgba(124,129,149,0.2); }
+  .scenario-tag.static   { background: rgba(245,158,11,0.1); color: var(--accent-amber); border-color: rgba(245,158,11,0.2); }
+  .scenario-tag.adaptive { background: rgba(167,139,250,0.1); color: var(--accent-purple); border-color: rgba(167,139,250,0.2); }
+
+  .sim-notice {
+    background: rgba(74,158,255,0.06);
+    border: 1px solid rgba(74,158,255,0.15);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+  .sim-notice strong { color: var(--accent-blue); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <div class="logo-dot" id="connDot"></div>
+    <div>
+      <div class="topbar-title">SDN Adaptif QoS — Canlı Dashboard</div>
+      <div class="topbar-sub">Mininet + Ryu Controller · OpenFlow 1.3</div>
+    </div>
+  </div>
+  <div class="connection-status">
+    <span id="tickLabel">—</span>
+  </div>
+</div>
+
+<div class="layout">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div>
+      <div class="sidebar-section-label">Senaryo Seçimi</div>
+      <button class="scenario-btn active green" onclick="setScenario('baseline')" id="btn-baseline">
+        <div class="scenario-num">1</div>
+        <div>
+          <div class="scenario-label">Baseline</div>
+          <div class="scenario-desc">QoS yok. </div>
+        </div>
+      </button>
+      <button class="scenario-btn" onclick="setScenario('static')" id="btn-static">
+        <div class="scenario-num">2</div>
+        <div>
+          <div class="scenario-label">Statik QoS</div>
+          <div class="scenario-desc">Manuel kısıtlama.</div>
+        </div>
+      </button>
+      <button class="scenario-btn" onclick="setScenario('adaptive')" id="btn-adaptive">
+        <div class="scenario-num">3</div>
+        <div>
+          <div class="scenario-label">Adaptif QoS</div>
+          <div class="scenario-desc">Otomatik yönetim.</div>
+        </div>
+      </button>
+    </div>
+
+    <!-- Statik QoS Kontrolleri -->
+    <div id="staticControls" style="display:none;">
+      <div class="sidebar-section-label">Statik QoS Kontrol</div>
+      <div class="control-block">
+        <div>
+          <div class="control-row">
+            <span class="control-label">Bulk TCP limiti</span>
+            <span class="control-value" id="bulkLimitVal">2.0 Mbps</span>
+          </div>
+          <input type="range" id="bulkLimit" min="0.5" max="9" step="0.5" value="2"
+                 oninput="document.getElementById('bulkLimitVal').textContent=parseFloat(this.value).toFixed(1)+' Mbps'">
+        </div>
+        <button class="apply-btn" onclick="applyStaticLimit()">
+          ↗ Kısıtı Uygula (Ryu API)
+        </button>
+        <div style="font-size:10px; color:var(--muted); line-height:1.5;">
+          Bulk trafiği kısıtlama amaçlı.
+        </div>
+      </div>
+    </div>
+
+    <!-- Event Log -->
+    <div style="flex:1; display:flex; flex-direction:column; min-height:0;">
+      <div class="sidebar-section-label">Sistem LOG</div>
+      <div class="event-log" id="eventLog">
+        <div class="log-entry ok"><span class="ts">00:00:00</span>Dashboard başlatıldı</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN CONTENT -->
+  <div class="main">
+
+    <!-- Durum satırı -->
+    <div style="display:flex; align-items:center; justify-content:space-between;">
+      <div id="scenarioTag" class="scenario-tag baseline">
+        <i class="ti ti-network"></i> Baseline – QoS Yok
+      </div>
+      <div id="adaptiveStatus" style="display:none;" class="decision-badge idle">
+        Sistem İzliyor
+      </div>
+    </div>
+
+    <!-- Metrik Kartlar -->
+    <div class="metrics-grid">
+      <div class="metric-card voip">
+        <div class="metric-label">VoIP (UDP h1)</div>
+        <div class="metric-value" id="voipTput">—</div>
+        <div class="metric-unit">Mbps</div>
+        <div class="metric-sub">
+          <span>Kayıp: <strong id="voipLoss">—</strong>%</span>
+          <span>Jitter: <strong id="voipJitter">—</strong>ms</span>
+          <span id="voipBadge" class="badge ok">SAĞLIKLI</span>
+        </div>
+      </div>
+      <div class="metric-card video">
+        <div class="metric-label">Video (UDP h2)</div>
+        <div class="metric-value" id="videoTput">—</div>
+        <div class="metric-unit">Mbps</div>
+        <div class="metric-sub">
+          <span>Kayıp: <strong id="videoLoss">—</strong>%</span>
+          <span>Jitter: <strong id="videoJitter">—</strong>ms</span>
+        </div>
+      </div>
+      <div class="metric-card bulk">
+        <div class="metric-label">Bulk TCP (h3)</div>
+        <div class="metric-value" id="bulkTput">—</div>
+        <div class="metric-unit">Mbps</div>
+        <div class="metric-sub">
+          <span>Retransmit: <strong id="bulkRetx">—</strong></span>
+          <span id="bulkLimitBadge" style="display:none;" class="badge warn">LİMİTLİ</span>
+        </div>
+      </div>
+      <div class="metric-card rtt">
+        <div class="metric-label">RTT (h1→h4)</div>
+        <div class="metric-value" id="rttVal">—</div>
+        <div class="metric-unit">ms ping</div>
+        <div class="metric-sub">
+          <span>Toplam ölçüm: <strong id="sampleCount">0</strong></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Grafikler -->
+    <div class="charts-grid">
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title">Throughput (Mbps)</div>
+          <div class="chart-legend">
+            <div class="legend-item"><div class="legend-dot" style="background:var(--voip-color);"></div>VoIP</div>
+            <div class="legend-item"><div class="legend-dot" style="background:var(--video-color);"></div>Video</div>
+            <div class="legend-item"><div class="legend-dot" style="background:var(--bulk-color);"></div>Bulk</div>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="tputChart" role="img" aria-label="Canlı throughput grafiği"></canvas>
+        </div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-header">
+          <div class="chart-title">Paket Kaybı & RTT</div>
+          <div class="chart-legend">
+            <div class="legend-item"><div class="legend-dot" style="background:var(--accent-red);"></div>VoIP Kayıp %</div>
+            <div class="legend-item"><div class="legend-dot" style="background:var(--accent-purple); height:2px; border-top:2px dashed var(--accent-purple); background:transparent;"></div>RTT ms</div>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="lossChart" role="img" aria-label="Canlı paket kaybı ve gecikme grafiği"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Adaptif Karar Paneli (sadece adaptif modda) -->
+    <div class="decision-panel" id="decisionPanel" style="display:none;">
+      <div class="decision-header">
+        <div class="decision-title">Adaptif QoS Karar Motoru</div>
+        <div class="decision-badge running" id="engineBadge">Çalışıyor</div>
+      </div>
+      <div class="decisions-row">
+        <div class="decision-item">
+          <div class="decision-item-label">VoIP Durumu</div>
+          <div class="decision-item-val" id="voipStatus" style="color:var(--accent-green);">SAĞLIKLI</div>
+        </div>
+        <div class="decision-item">
+          <div class="decision-item-label">Bulk Limiti</div>
+          <div class="decision-item-val" id="bulkLimitDisplay" style="color:var(--accent-amber);">Serbest</div>
+        </div>
+        <div class="decision-item">
+          <div class="decision-item-label">Son Aksiyon</div>
+          <div class="decision-item-val" id="lastAction" style="color:var(--muted); font-size:12px;">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bilgi notu -->
+    <div class="sim-notice" id="simNotice">
+      <strong>Demo Modu:</strong> Dashboard şu an simüle edilmiş verilerle çalışıyor. Gerçek Mininet verileri için
+      <code>sudo python3 topology.py --mode baseline</code> komutunu çalıştır, dashboard otomatik bağlanır
+      (UDP port 9999).
+    </div>
+
+  </div>
+</div>
+
+<script>
+const MAX_POINTS = 40;
+const labels = [];
+let sampleCount = 0;
+let currentScenario = 'baseline';
+let simInterval = null;
+let udpSocket = null;
+let bulkLimitMbps = 2.0;
+
+const tputData = {
+  voip : [],
+  video: [],
+  bulk : [],
+};
+const lossData = {
+  voipLoss: [],
+  rtt     : [],
+};
+
+function push(arr, val) {
+  arr.push(val);
+  if (arr.length > MAX_POINTS) arr.shift();
+}
+
+/* ── CHARTS ── */
+const chartDefaults = {
+  responsive: true,
+  maintainAspectRatio: false,
+  animation: { duration: 300 },
+  plugins: { legend: { display: false }, tooltip: {
+    backgroundColor: '#1e2330',
+    titleColor: '#e8eaf0',
+    bodyColor: '#7c8195',
+    borderColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1,
+  }},
+  scales: {
+    x: {
+      ticks: { color: '#7c8195', font: { size: 9, family: 'IBM Plex Mono' }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
+      grid: { color: 'rgba(255,255,255,0.04)' },
+    },
+    y: {
+      ticks: { color: '#7c8195', font: { size: 9, family: 'IBM Plex Mono' } },
+      grid: { color: 'rgba(255,255,255,0.04)' },
+    },
+  },
+};
+
+const tputChart = new Chart(document.getElementById('tputChart'), {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [
+      { label: 'VoIP', data: tputData.voip,  borderColor: '#34d399', backgroundColor: 'rgba(52,211,153,0.05)', tension: 0.35, pointRadius: 0, borderWidth: 2 },
+      { label: 'Video', data: tputData.video, borderColor: '#4a9eff', backgroundColor: 'rgba(74,158,255,0.05)', tension: 0.35, pointRadius: 0, borderWidth: 2 },
+      { label: 'Bulk', data: tputData.bulk,   borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.05)', tension: 0.35, pointRadius: 0, borderWidth: 2, borderDash: [4,2] },
+    ],
+  },
+  options: { ...chartDefaults, scales: { ...chartDefaults.scales, y: { ...chartDefaults.scales.y, min: 0, suggestedMax: 10, title: { display: true, text: 'Mbps', color: '#7c8195', font: { size: 9 } } } } },
+});
+
+const lossChart = new Chart(document.getElementById('lossChart'), {
+  type: 'line',
+  data: {
+    labels,
+    datasets: [
+      { label: 'VoIP Kayıp %', data: lossData.voipLoss, borderColor: '#f87171', backgroundColor: 'rgba(248,113,113,0.05)', tension: 0.35, pointRadius: 0, borderWidth: 2, yAxisID: 'yLoss' },
+      { label: 'RTT ms',       data: lossData.rtt,      borderColor: '#a78bfa', backgroundColor: 'rgba(167,139,250,0.05)', tension: 0.35, pointRadius: 0, borderWidth: 2, borderDash: [4,2], yAxisID: 'yRtt' },
+    ],
+  },
+  options: {
+    ...chartDefaults,
+    scales: {
+      x: chartDefaults.scales.x,
+      yLoss: { position: 'left',  min: 0, ticks: { color: '#f87171', font: { size: 9, family: 'IBM Plex Mono' }, callback: v => v+'%' }, grid: { color: 'rgba(255,255,255,0.04)' } },
+      yRtt:  { position: 'right', min: 0, ticks: { color: '#a78bfa', font: { size: 9, family: 'IBM Plex Mono' }, callback: v => v+'ms' }, grid: { drawOnChartArea: false } },
+    },
+  },
+});
+
+/* ── DATA UPDATE ── */
+function updateUI(d) {
+  sampleCount++;
+  const ts = new Date().toLocaleTimeString('tr-TR', { hour12: false });
+  push(labels, ts);
+  push(tputData.voip,    d.voip.throughput_mbps);
+  push(tputData.video,   d.video.throughput_mbps);
+  push(tputData.bulk,    d.bulk.throughput_mbps);
+  push(lossData.voipLoss, d.voip.loss_pct);
+  push(lossData.rtt,      d.rtt_ms < 0 ? null : d.rtt_ms);
+
+  tputChart.update();
+  lossChart.update();
+
+  el('voipTput').textContent    = d.voip.throughput_mbps.toFixed(2);
+  el('videoTput').textContent   = d.video.throughput_mbps.toFixed(2);
+  el('bulkTput').textContent    = d.bulk.throughput_mbps.toFixed(2);
+  el('rttVal').textContent      = d.rtt_ms < 0 ? '—' : d.rtt_ms.toFixed(1);
+  el('voipLoss').textContent    = d.voip.loss_pct.toFixed(1);
+  el('voipJitter').textContent  = d.voip.jitter_ms.toFixed(1);
+  el('videoLoss').textContent   = d.video.loss_pct.toFixed(1);
+  el('videoJitter').textContent = d.video.jitter_ms.toFixed(1);
+  el('bulkRetx').textContent    = d.bulk.retransmits;
+  el('sampleCount').textContent = sampleCount;
+  el('tickLabel').textContent   = ts;
+
+  const voipHealthy = d.voip.loss_pct <= 2 && d.voip.throughput_mbps >= 0.3;
+  const badge = el('voipBadge');
+  badge.textContent = voipHealthy ? 'SAĞLIKLI' : 'SORUNLU';
+  badge.className   = 'badge ' + (voipHealthy ? 'ok' : 'bad');
+
+  if (d.bulk_limit_mbps !== undefined || d.bulk_limit !== undefined) {
+    const lim = d.bulk_limit_mbps ?? d.bulk_limit;
+    el('bulkLimitBadge').style.display = lim < 9 ? '' : 'none';
+  }
+
+  if (d.scenario === 'adaptive') {
+    el('voipStatus').textContent = d.voip_healthy ? 'SAĞLIKLI' : 'SORUNLU';
+    el('voipStatus').style.color = d.voip_healthy ? 'var(--accent-green)' : 'var(--accent-red)';
+    el('bulkLimitDisplay').textContent = d.constrained ? (d.bulk_limit?.toFixed(1) + ' Mbps') : 'Serbest';
+    el('bulkLimitDisplay').style.color = d.constrained ? 'var(--accent-red)' : 'var(--accent-green)';
+    if (d.action && d.action !== 'none') {
+      el('lastAction').textContent = d.action;
+      el('engineBadge').className  = 'decision-badge constraining';
+      el('engineBadge').textContent = 'Müdahale Etti';
+      addLog(d.action, 'warn');
+      setTimeout(() => {
+        el('engineBadge').className  = 'decision-badge running';
+        el('engineBadge').textContent = 'Çalışıyor';
+      }, 4000);
+    }
+    el('adaptiveStatus').style.display = '';
+    el('adaptiveStatus').className = 'decision-badge ' + (d.constrained ? 'constraining' : 'running');
+    el('adaptiveStatus').textContent = d.constrained ? '⚠ Kısıtlama Aktif' : 'Sistem İzliyor';
+  }
+}
+
+/* ── SIMULATION ── */
+const simState = {
+  t: 0,
+  constrained: false,
+  bulkLimit: 9,
+};
+
+function simTick() {
+  simState.t += 1;
+  const t = simState.t;
+  let d;
+
+  if (currentScenario === 'baseline') {
+    d = {
+      scenario: 'baseline',
+      voip : { throughput_mbps: jitter(0.48, 0.06), loss_pct: jitter(0.3, 0.4), jitter_ms: jitter(2.5, 0.8), retransmits: 0 },
+      video: { throughput_mbps: jitter(2.7, 0.4),  loss_pct: jitter(0.8, 0.6), jitter_ms: jitter(3.2, 1.0), retransmits: 0 },
+      bulk : { throughput_mbps: jitter(5.8, 1.2),  loss_pct: 0, jitter_ms: 0, retransmits: Math.round(jitter(4, 3)) },
+      rtt_ms: jitter(10.5, 2.5),
+    };
+    // Zaman zaman Bulk artarsa VoIP düşer
+    if (t % 25 < 8) {
+      d.bulk.throughput_mbps = jitter(8.2, 0.5);
+      d.voip.throughput_mbps = jitter(0.18, 0.05);
+      d.voip.loss_pct        = jitter(5.5, 2.0);
+      d.rtt_ms               = jitter(28, 5);
+    }
+  } else if (currentScenario === 'static') {
+    const lim = bulkLimitMbps;
+    d = {
+      scenario: 'static',
+      bulk_limit_mbps: lim,
+      voip : { throughput_mbps: jitter(0.47, 0.04), loss_pct: jitter(0.2, 0.2), jitter_ms: jitter(2.1, 0.5), retransmits: 0 },
+      video: { throughput_mbps: jitter(2.85, 0.25), loss_pct: jitter(0.4, 0.3), jitter_ms: jitter(2.8, 0.7), retransmits: 0 },
+      bulk : { throughput_mbps: Math.min(lim * 0.92, jitter(lim * 0.88, 0.2)), loss_pct: 0, jitter_ms: 0, retransmits: Math.round(jitter(2, 1.5)) },
+      rtt_ms: jitter(6.5, 1.5),
+    };
+  } else {
+    // Adaptif: Bulk periyodik burst → sistem kısıtlar → VoIP düzelir
+    const burstPhase = t % 30;
+    const busting = burstPhase > 5 && burstPhase < 15;
+
+    if (busting && !simState.constrained) {
+      simState.constrained = true;
+      simState.bulkLimit   = 2.5;
+      addLog('⚠ VoIP sağlıksız → Bulk kısıtlandı: 2.5 Mbps', 'warn');
+    } else if (!busting && simState.constrained && burstPhase > 20) {
+      simState.bulkLimit = Math.min(9, simState.bulkLimit + 1.5);
+      if (simState.bulkLimit >= 9) {
+        simState.constrained = false;
+        addLog('✓ VoIP sağlıklı → Bulk kısıt kaldırıldı', 'ok');
+      } else {
+        addLog('↑ Bulk gevşetiliyor: ' + simState.bulkLimit.toFixed(1) + ' Mbps', 'info');
+      }
+    }
+
+    const lim  = simState.constrained ? simState.bulkLimit : 9;
+    const healthy = !simState.constrained;
+    d = {
+      scenario    : 'adaptive',
+      voip        : { throughput_mbps: healthy ? jitter(0.47, 0.04) : jitter(0.15, 0.06), loss_pct: healthy ? jitter(0.2,0.2) : jitter(4.5,1.5), jitter_ms: jitter(2.1,0.5), retransmits: 0 },
+      video       : { throughput_mbps: jitter(2.7, 0.3), loss_pct: jitter(0.5,0.3), jitter_ms: jitter(2.9,0.6), retransmits: 0 },
+      bulk        : { throughput_mbps: Math.min(lim*0.9, busting ? jitter(7.8,0.4) : jitter(lim*0.85,0.3)), loss_pct: 0, jitter_ms: 0, retransmits: Math.round(jitter(3,2)) },
+      rtt_ms      : healthy ? jitter(7.0, 1.5) : jitter(22, 4),
+      constrained : simState.constrained,
+      bulk_limit  : lim,
+      voip_healthy: healthy,
+      action      : 'none',
+    };
+  }
+
+  updateUI(d);
+}
+
+function jitter(base, range) {
+  return Math.max(0, base + (Math.random() - 0.5) * 2 * range);
+}
+
+/* ── SCENARIO SWITCH ── */
+function setScenario(sc) {
+  currentScenario = sc;
+  simState.t = 0;
+  simState.constrained = false;
+  simState.bulkLimit = 9;
+
+  ['baseline','static','adaptive'].forEach(s => {
+    const btn = el('btn-' + s);
+    btn.className = 'scenario-btn' + (s === sc ? ' active ' + ({baseline:'green',static:'amber',adaptive:'purple'}[s]) : '');
+  });
+
+  el('staticControls').style.display  = sc === 'static'   ? '' : 'none';
+  el('decisionPanel').style.display   = sc === 'adaptive' ? '' : 'none';
+  el('adaptiveStatus').style.display  = sc === 'adaptive' ? '' : 'none';
+
+  const tag = el('scenarioTag');
+  const labels_map = { baseline: 'Baseline – QoS Yok', static: 'Statik QoS – Manuel Kısıt', adaptive: 'Adaptif QoS – Otomatik Yönetim' };
+  tag.textContent = labels_map[sc];
+  tag.className   = 'scenario-tag ' + sc;
+
+  addLog('Senaryo değişti: ' + sc.toUpperCase(), 'info');
+
+  // Ryu API'ye bildir (gerçek Mininet bağlıyken)
+  fetch('http://127.0.0.1:8080/qos/mode', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: sc, bulk_limit_mbps: bulkLimitMbps }),
+  }).catch(() => {});
+}
+
+function applyStaticLimit() {
+  bulkLimitMbps = parseFloat(el('bulkLimit').value);
+  addLog('Bulk kısıt uygulandı: ' + bulkLimitMbps.toFixed(1) + ' Mbps', 'warn');
+  fetch('http://127.0.0.1:8080/qos/mode', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode: 'static', bulk_limit_mbps: bulkLimitMbps }),
+  }).catch(() => {});
+}
+
+/* ── EVENT LOG ── */
+function addLog(msg, type = '') {
+  const log  = el('eventLog');
+  const ts   = new Date().toLocaleTimeString('tr-TR', { hour12: false });
+  const entry = document.createElement('div');
+  entry.className = 'log-entry ' + type;
+  entry.innerHTML = `<span class="ts">${ts}</span>${msg}`;
+  log.prepend(entry);
+  while (log.children.length > 50) log.removeChild(log.lastChild);
+}
+
+/* ── UDP LISTENER (WebSocket bridge not available in browser, use polling) ── */
+function tryConnectRyu() {
+  fetch('http://127.0.0.1:8080/qos/stats')
+    .then(r => r.json())
+    .then(d => {
+      el('connDot').className    = 'logo-dot';
+      el('connLabel').textContent = 'Ryu bağlı (gerçek veri)';
+      el('simNotice').style.display = 'none';
+      updateUI(d);
+    })
+    .catch(() => {
+      el('connDot').className    = 'logo-dot';
+      el('connLabel').textContent = 'Demo modu (simülasyon)';
+    });
+}
+
+/* ── INIT ── */
+function el(id) { return document.getElementById(id); }
+simInterval = setInterval(simTick, 1500);
+setInterval(tryConnectRyu, 3000);
+addLog('Simülasyon başlatıldı (Baseline)', 'ok');
+</script>
+</body>
+</html>
