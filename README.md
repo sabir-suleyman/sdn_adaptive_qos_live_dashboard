@@ -1,7 +1,7 @@
 # SDN-Based Adaptive QoS Management in Wireless Networks
 
 > **Course:** Wireless Network Protocols — Bursa Uludağ University, Dept. of Computer Engineering  
-> **Author:** Sabir Süleymanlı · `502531019`
+> **Author:** Sabir Süleymanlı · `suleymanlisabir3@gmail.com`
 
 A working demonstration of **Software-Defined Networking (SDN)** applied to adaptive Quality of Service (QoS) management. The system continuously monitors traffic conditions and autonomously adjusts bandwidth policies — no manual intervention required.
 
