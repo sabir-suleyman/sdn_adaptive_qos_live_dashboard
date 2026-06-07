@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 SDN Tabanlı Adaptif QoS Demo - Mininet Topolojisi
+Kullanım: sudo python3 topology.py [--mode baseline|static|adaptive]
 """
+
 from mininet.net import Mininet
 from mininet.node import RemoteController, OVSSwitch
 from mininet.link import TCLink
@@ -25,7 +27,7 @@ LINK_DELAY = '5ms'
 LINK_LOSS  = 0    # %
 
 class MetricsBroadcaster:
-    """Toplanan metrikleri UDP ile dashboard'a iletir."""
+    """Toplanan metrikleri UDP ile dashboard'a iletir, Ryu stats'ı günceller."""
 
     def __init__(self, port=METRICS_PORT):
         self.port = port
@@ -35,8 +37,34 @@ class MetricsBroadcaster:
         try:
             payload = json.dumps(data).encode()
             self.sock.sendto(payload, ('127.0.0.1', self.port))
-        except Exception as e:
+        except Exception:
             pass  # Dashboard bağlı değilse sessizce geç
+        # Ryu REST API'ye de gönder (dashboard polling için)
+        try:
+            import urllib.request
+            stats = {
+                'scenario'   : data.get('scenario', 'unknown'),
+                'voip_loss'  : data['voip']['loss_pct'],
+                'video_loss' : data['video']['loss_pct'],
+                'bulk_tput'  : data['bulk']['throughput_mbps'],
+                'voip_tput'  : data['voip']['throughput_mbps'],
+                'video_tput' : data['video']['throughput_mbps'],
+                'rtt_ms'     : data.get('rtt_ms', 0),
+                'timestamp'  : data.get('timestamp', 0),
+                'bulk_limit' : data.get('bulk_limit', data.get('bulk_limit_mbps', 0)),
+                'constrained': data.get('constrained', False),
+                'action'     : data.get('action', 'none'),
+                'voip_healthy': data.get('voip_healthy', True),
+            }
+            req = urllib.request.Request(
+                'http://127.0.0.1:8080/qos/stats/update',
+                data=json.dumps(stats).encode(),
+                headers={'Content-Type': 'application/json'},
+                method='POST',
+            )
+            urllib.request.urlopen(req, timeout=0.5)
+        except Exception:
+            pass  # Ryu bağlı değilse sessizce geç
 
 
 broadcaster = MetricsBroadcaster()
@@ -45,6 +73,7 @@ broadcaster = MetricsBroadcaster()
 def measure_iperf(src, dst_ip, duration=3, udp=False, bandwidth='2M'):
     """
     iperf3 ile throughput, jitter ve paket kaybı ölçer.
+    Döndürür: dict {throughput_mbps, jitter_ms, loss_pct, retransmits}
     """
     proto_flag = '-u' if udp else ''
     bw_flag    = f'-b {bandwidth}' if udp else ''
@@ -70,7 +99,8 @@ def measure_iperf(src, dst_ip, duration=3, udp=False, bandwidth='2M'):
                 'loss_pct'       : 0.0,
                 'retransmits'    : s.get('retransmits', 0),
             }
-    except Exception:
+    except Exception as e:
+        info(f'*** iperf3 hata ({src}→{dst_ip}): {e} | çıktı: {result[:200]}\n')
         return {'throughput_mbps': 0, 'jitter_ms': 0, 'loss_pct': 100, 'retransmits': 0}
 
 
@@ -100,9 +130,21 @@ def apply_tc_limit(host, iface, rate_mbit):
 
 
 def run_iperf_server(host):
-    """Arka planda iperf3 sunucusu başlatır."""
-    host.cmd('pkill -f iperf3 2>/dev/null; sleep 0.3')
-    host.cmd('iperf3 -s -D')   # daemon modunda
+    """Arka planda iperf3 sunucusu başlatır ve hazır olana kadar bekler."""
+    host.cmd('pkill -f iperf3 2>/dev/null; sleep 0.5')
+    # -D (daemon) Mininet namespace'inde güvenilir değil; & ile arka plana al
+    host.cmd('iperf3 -s > /tmp/iperf3_server.log 2>&1 &')
+    # Sunucunun portu dinlemeye başlaması için bekle
+    time.sleep(2.0)
+    # Sunucu gerçekten başladı mı kontrol et
+    check = host.cmd('ss -tlnp 2>/dev/null | grep 5201 || echo "NOT_LISTENING"')
+    if 'NOT_LISTENING' in check:
+        info('*** UYARI: iperf3 sunucusu 5201 portunu dinlemiyor!\n')
+        info('*** Yeniden başlatılıyor...\n')
+        host.cmd('iperf3 -s > /tmp/iperf3_server.log 2>&1 &')
+        time.sleep(2.0)
+    else:
+        info('*** iperf3 sunucusu hazır (port 5201)\n')
 
 
 def build_network():
@@ -143,11 +185,14 @@ def build_network():
     return net, h1, h2, h3, h4
 
 
+# ---------------------------------------------------------------------------
 # SENARYO FONKSİYONLARI
+# ---------------------------------------------------------------------------
 
 def run_baseline(net, h1, h2, h3, h4, stop_event):
     """
     Senaryo 1 – Baseline: QoS kuralı yok, tüm trafik eşit.
+    Her ölçüm periyodunda metrikleri toplayıp dashboard'a gönderir.
     """
     info('\n=== BASELINE SENARYOSU BAŞLADI ===\n')
     run_iperf_server(h4)
@@ -181,7 +226,9 @@ def run_baseline(net, h1, h2, h3, h4, stop_event):
 def run_static_qos(net, h1, h2, h3, h4, stop_event,
                    bulk_limit_mbps=2):
     """
-    Senaryo 2 – Statik QoS: Bulk TCP trafiğine sabit bant genişliği kısıtı uygulanır.
+    Senaryo 2 – Statik QoS:
+    Bulk TCP trafiğine sabit bant genişliği kısıtı uygulanır.
+    bulk_limit_mbps dışarıdan (dashboard'dan) değiştirilebilir.
     """
     info(f'\n=== STATİK QoS SENARYOSU BAŞLADI '
          f'(Bulk kısıt={bulk_limit_mbps} Mbps) ===\n')
@@ -225,6 +272,13 @@ def run_adaptive_qos(net, h1, h2, h3, h4, stop_event):
     """
     Senaryo 3 – Adaptif QoS:
     Ağ durumunu izler; Bulk trafik UDP'yi bastırıyorsa otomatik kısıtlar.
+    Kısıtlama kararı tamamen algoritmik, kullanıcı müdahalesi yok.
+
+    Algoritma:
+      - Her döngüde throughput ve paket kaybı ölçülür.
+      - VoIP kayıpı > VOIP_LOSS_THRESH  VEYA
+        VoIP throughput < VOIP_MIN_MBPS  ise → Bulk kısıtlanır.
+      - VoIP sağlıklıysa kısıt aşamalı olarak gevşetilir.
     """
     VOIP_LOSS_THRESH = 2.0    # % paket kaybı eşiği
     VOIP_MIN_MBPS   = 0.3    # minimum kabul edilebilir VoIP throughput
@@ -300,8 +354,9 @@ def run_adaptive_qos(net, h1, h2, h3, h4, stop_event):
     apply_tc_limit(h3, 'h3-eth0', 0)
 
 
-# Main fonksiyonu
-
+# ---------------------------------------------------------------------------
+# ANA GİRİŞ NOKTASI
+# ---------------------------------------------------------------------------
 
 def main():
     parser = argparse.ArgumentParser(description='SDN Adaptif QoS Demo')
