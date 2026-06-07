@@ -14,7 +14,7 @@ from ryu.controller import ofp_event
 from ryu.controller.handler import CONFIG_DISPATCHER, MAIN_DISPATCHER, set_ev_cls
 from ryu.ofproto import ofproto_v1_3
 from ryu.lib.packet import packet, ethernet, ether_types, ipv4, tcp, udp
-from ryu.app.wsgi import WSGIApplication, ControllerBase, route
+from ryu.app.wsgi import WSGIApplication, ControllerBase, route, Response
 from ryu.lib import hub
 
 import json
@@ -24,8 +24,9 @@ import logging
 
 LOG = logging.getLogger('adaptive_qos')
 
+# ---------------------------------------------------------------------------
 # Sabitler
-
+# ---------------------------------------------------------------------------
 IDLE_TIMEOUT  = 30      # akış tablosu boşta kalma süresi (sn)
 HARD_TIMEOUT  = 0       # sonsuz
 MONITOR_INTV  = 5       # istatistik toplama aralığı (sn)
@@ -50,7 +51,9 @@ METER_BULK_ID  = 1
 METER_VIDEO_ID = 2
 
 
+# ---------------------------------------------------------------------------
 # REST API Kaynakları
+# ---------------------------------------------------------------------------
 
 class QoSAPI(ControllerBase):
     """Dışarıdan mod değiştirme ve durum sorgulama için REST API."""
@@ -66,7 +69,7 @@ class QoSAPI(ControllerBase):
             'bulk_limit'  : self.ctrl.bulk_limit_kbps,
             'constrained' : self.ctrl.constrained,
         })
-        return body, 200, {'Content-Type': 'application/json'}
+        return Response(content_type='application/json', body=body)
 
     @route('qos', '/qos/mode', methods=['POST'])
     def set_mode(self, req, **kwargs):
@@ -74,22 +77,36 @@ class QoSAPI(ControllerBase):
             data = json.loads(req.body)
             mode = data.get('mode', 'baseline')
             if mode not in ('baseline', 'static', 'adaptive'):
-                return '{"error":"invalid mode"}', 400
+                return Response(status=400, content_type='application/json',
+                                body='{"error":"invalid mode"}')
             bulk_limit = data.get('bulk_limit_mbps', 2)
             self.ctrl.set_mode(mode, bulk_limit_mbps=bulk_limit)
-            return json.dumps({'ok': True, 'mode': mode}), 200, \
-                   {'Content-Type': 'application/json'}
+            return Response(content_type='application/json',
+                            body=json.dumps({'ok': True, 'mode': mode}))
         except Exception as e:
-            return json.dumps({'error': str(e)}), 500, \
-                   {'Content-Type': 'application/json'}
+            return Response(status=500, content_type='application/json',
+                            body=json.dumps({'error': str(e)}))
 
     @route('qos', '/qos/stats', methods=['GET'])
     def get_stats(self, req, **kwargs):
         body = json.dumps(self.ctrl.last_stats)
-        return body, 200, {'Content-Type': 'application/json'}
+        return Response(content_type='application/json', body=body)
+
+    @route('qos', '/qos/stats/update', methods=['POST'])
+    def update_stats(self, req, **kwargs):
+        """topology.py'den gelen ölçüm sonuçlarını saklar."""
+        try:
+            data = json.loads(req.body)
+            self.ctrl.last_stats = data
+            return Response(content_type='application/json', body='{"ok":true}')
+        except Exception as e:
+            return Response(status=500, content_type='application/json',
+                            body=json.dumps({'error': str(e)}))
 
 
+# ---------------------------------------------------------------------------
 # Ana Kontrolcü Uygulaması
+# ---------------------------------------------------------------------------
 
 class AdaptiveQoSController(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -118,7 +135,9 @@ class AdaptiveQoSController(app_manager.RyuApp):
         # İzleme döngüsü
         self.monitor_thread = hub.spawn(self._monitor_loop)
 
+    # -----------------------------------------------------------------------
     # OpenFlow olayları
+    # -----------------------------------------------------------------------
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -190,8 +209,9 @@ class AdaptiveQoSController(app_manager.RyuApp):
             LOG.debug('Flow: %s pkt=%d byte=%d',
                       match, stat.packet_count, stat.byte_count)
 
-
+    # -----------------------------------------------------------------------
     # Yardımcı: akış ekleme
+    # -----------------------------------------------------------------------
 
     def _add_flow(self, dp, priority, match, actions,
                   idle_timeout=0, hard_timeout=0, meter_id=None):
@@ -231,8 +251,9 @@ class AdaptiveQoSController(app_manager.RyuApp):
         )
         dp.send_msg(mod)
 
-
+    # -----------------------------------------------------------------------
     # Meter (hız sınırı) kurma
+    # -----------------------------------------------------------------------
 
     def _add_meter(self, dp, meter_id, rate_kbps):
         """HTB meter ekler (kbps cinsinden)."""
@@ -282,8 +303,9 @@ class AdaptiveQoSController(app_manager.RyuApp):
         )
         dp.send_msg(mod)
 
-    
+    # -----------------------------------------------------------------------
     # Mod Uygulama
+    # -----------------------------------------------------------------------
 
     def _apply_mode(self, dp):
         """Mevcut moda göre flow tablosunu ve meter'ları günceller."""
@@ -372,9 +394,9 @@ class AdaptiveQoSController(app_manager.RyuApp):
 
         LOG.info('[AdaptifQoS] Başlatıldı, kısıt yok.')
 
-    
-    
+    # -----------------------------------------------------------------------
     # İzleme & Adaptif Karar Döngüsü
+    # -----------------------------------------------------------------------
 
     def _monitor_loop(self):
         """Periyodik istatistik toplar; adaptif modda karar alır."""
@@ -388,9 +410,9 @@ class AdaptiveQoSController(app_manager.RyuApp):
         req    = parser.OFPFlowStatsRequest(dp)
         dp.send_msg(req)
 
-
-
+    # -----------------------------------------------------------------------
     # Dışarıdan Mod Değiştirme (REST API'den çağrılır)
+    # -----------------------------------------------------------------------
 
     def set_mode(self, mode, bulk_limit_mbps=2):
         self.mode             = mode
